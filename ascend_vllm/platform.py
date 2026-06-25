@@ -15,7 +15,6 @@
 
 from typing import TYPE_CHECKING, Optional
 
-from vllm_ascend.ascend_config import get_ascend_config  # noqa: F401
 from vllm_ascend.platform import NPUPlatform
 
 if TYPE_CHECKING:
@@ -27,15 +26,6 @@ else:
 
 
 class PatchNPUPlatform(NPUPlatform):
-    @classmethod
-    def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
-        super().check_and_update_config(vllm_config)
-        ascend_config = get_ascend_config()
-        parallel_config = vllm_config.parallel_config
-        if parallel_config and not ascend_config.xlite_graph_config.enabled:
-            parallel_config.worker_cls = "ascend_vllm.worker.worker_v1.NPUWorker"
-
-    
     @classmethod
     def pre_register_and_update(cls,
                                 parser: Optional[FlexibleArgumentParser] = None

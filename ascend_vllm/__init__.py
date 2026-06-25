@@ -64,3 +64,6 @@ def register_model():
     from vllm_ascend.models import register_model
 
     register_model()
+
+def register_worker_patch():
+    from ascend_vllm.patch import worker  # noqa: F401
