@@ -18,7 +18,6 @@ _GLOBAL_PATCH_APPLIED = False
 
 def _ensure_global_patch():
     """Apply vllm-ascend's process-wide patches once per process."""
-    import ascend_vllm.patch.platform  # noqa: F401
 
     global _GLOBAL_PATCH_APPLIED
     if _GLOBAL_PATCH_APPLIED:
@@ -65,7 +64,3 @@ def register_model():
     from vllm_ascend.models import register_model
 
     register_model()
-
-
-def register_worker_patch():
-    from ascend_vllm.patch import worker  # noqa: F401
