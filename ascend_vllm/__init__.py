@@ -65,3 +65,16 @@ def register_model():
     from vllm_ascend.models import register_model
 
     register_model()
+
+def register_worker_patch():
+    import os
+    from vllm.logger import init_logger
+
+    logger = init_logger("vllm.ascend_vllm.worker_patch")
+    logger.warning(
+        "ModelArts worker patch plugin entered. pid=%s, VLLM_PLUGINS=%s",
+        os.getpid(),
+        os.getenv("VLLM_PLUGINS"),
+    )
+
+    from ascend_vllm.patch.platform import patch_mooncake_hybrid_connector  # noqa: F401
