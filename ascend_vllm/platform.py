@@ -28,9 +28,19 @@ else:
 
 class PatchNPUPlatform(NPUPlatform):
     @classmethod
-    def pre_register_and_update(cls, parser: Optional[FlexibleArgumentParser] = None) -> None:  # noqa: UP045
+    def check_and_update_config(cls, vllm_config: VllmConfig) -> None:
+        super().check_and_update_config(vllm_config)
+        ascend_config = get_ascend_config()
+        parallel_config = vllm_config.parallel_config
+        if parallel_config and not ascend_config.xlite_graph_config.enabled:
+            parallel_config.worker_cls = "ascend_vllm.worker.worker_v1.NPUWorker"
+
+    
+    @classmethod
+    def pre_register_and_update(cls,
+                                parser: Optional[FlexibleArgumentParser] = None
+                                ) -> None:
         super().pre_register_and_update(parser)
 
         from ascend_vllm.utils import adapt_patch
-
         adapt_patch(is_global_patch=True)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import functools
-<<<<<<< Updated upstream:ascend_vllm/patch/platform/patch_mooncake_hybrid_kv_failure.py
 import threading
 from numbers import Integral
 from typing import Any
@@ -10,10 +9,6 @@ import numpy as np
 from vllm.logger import init_logger
 
 logger = init_logger("vllm.ascend_vllm.patch.platform.mooncake_hybrid_kv_failure")
-=======
-
-import numpy as np
->>>>>>> Stashed changes:ascend_vllm/patch/platform/patch_recompute_scheduler.py
 
 _PATCH_APPLIED = False
 
@@ -277,11 +272,8 @@ def apply_patch() -> None:
     _patch_mooncake_hybrid_connector()
     _patch_recompute_scheduler()
 
-<<<<<<< Updated upstream:ascend_vllm/patch/platform/patch_mooncake_hybrid_kv_failure.py
     _PATCH_APPLIED = True
     logger.info("Applied ModelArts Mooncake Hybrid KV failure monkey patch.")
 
-=======
->>>>>>> Stashed changes:ascend_vllm/patch/platform/patch_recompute_scheduler.py
 
 apply_patch()

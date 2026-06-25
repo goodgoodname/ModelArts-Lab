@@ -28,7 +28,6 @@ setup(
             "ascend_model_loader = ascend_vllm:register_model_loader",
             "ascend_service_profiling = ascend_vllm:register_service_profiling",
             "ascend_model = ascend_vllm:register_model",
-            "modelarts_worker_patch = ascend_vllm:register_worker_patch",
         ],
     },
     install_requires=get_requirements(),
