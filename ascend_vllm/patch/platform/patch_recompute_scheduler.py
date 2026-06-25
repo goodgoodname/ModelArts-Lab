@@ -9,6 +9,7 @@ _PATCH_APPLIED = False
 
 def _patch_recompute_scheduler() -> None:
     """Patch RecomputeScheduler for HMA invalid-block handling."""
+    from vllm.v1.core.sched.scheduler import Scheduler
     from vllm_ascend.core import recompute_scheduler as rs
 
     def update_requests_with_invalid_blocks(
@@ -178,6 +179,11 @@ def _patch_recompute_scheduler() -> None:
 
             patched_handle_invalid_blocks._modelarts_kv_failure_handle_wrapped = True
             cls._handle_invalid_blocks = patched_handle_invalid_blocks
+
+    # RecomputeScheduler inherits _handle_invalid_blocks from upstream
+    # Scheduler. Patch the base class too, otherwise an old one-argument
+    # call can still resolve to Scheduler._handle_invalid_blocks directly.
+    patch_invalid_blocks_signature(Scheduler)
 
     rs.RecomputeScheduler._update_requests_with_invalid_blocks = (
         update_requests_with_invalid_blocks
