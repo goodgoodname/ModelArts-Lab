@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 import threading
 from numbers import Integral
@@ -36,6 +37,12 @@ def _patch_mooncake_hybrid_connector() -> None:
     from vllm_ascend.distributed.kv_transfer.kv_p2p import mooncake_hybrid_connector as mhc
 
     recv_cls = mhc.KVCacheRecvingThread
+    logger.warning(
+        "Mooncake connector patch loaded. pid=%s, module_file=%s, recv_cls_file=%s",
+        os.getpid(),
+        mhc.__file__,
+        inspect.getfile(recv_cls),
+    )
 
     if not getattr(recv_cls, "_modelarts_mooncake_hybrid_connector_patch_applied", False):
         origin_init = recv_cls.__init__
@@ -43,6 +50,11 @@ def _patch_mooncake_hybrid_connector() -> None:
         @functools.wraps(origin_init)
         def patched_init(self, *args, **kwargs):
             origin_init(self, *args, **kwargs)
+            logger.warning(
+                "KVCacheRecvingThread patched init called. pid=%s, self_type=%s",
+                os.getpid(),
+                type(self),
+            )
 
             # Store local KV block ids whose remote load failed.
             self.invalid_block_ids = set()
@@ -81,9 +93,21 @@ def _patch_mooncake_hybrid_connector() -> None:
 
             @functools.wraps(origin_method)
             def wrapped(self, req_meta, *args, **kwargs):
+                logger.warning(
+                    "Mooncake transfer wrapper entered. pid=%s, method=%s, request_id=%s",
+                    os.getpid(),
+                    method_name,
+                    req_meta.get("request_id"),
+                )
                 try:
                     return origin_method(self, req_meta, *args, **kwargs)
                 except Exception:
+                    logger.warning(
+                        "Mooncake transfer failed in wrapper. pid=%s, method=%s, local_block_ids=%s",
+                        os.getpid(),
+                        method_name,
+                        req_meta.get("local_block_ids"),
+                    )
                     try:
                         self._mark_failed_recv_request(req_meta.get("local_block_ids", ()))
                     except Exception:
@@ -92,6 +116,13 @@ def _patch_mooncake_hybrid_connector() -> None:
 
             wrapped._modelarts_wrapped = True
             setattr(recv_cls, method_name, wrapped)
+            logger.warning(
+                "Wrapped Mooncake transfer method. pid=%s, method=%s, origin=%s, wrapped=%s",
+                os.getpid(),
+                method_name,
+                origin_method,
+                wrapped,
+            )
 
         recv_cls.__init__ = patched_init
         recv_cls._mark_failed_recv_request = mark_failed_recv_request
@@ -110,7 +141,13 @@ def _patch_mooncake_hybrid_connector() -> None:
     def worker_get_block_ids_with_load_errors(self) -> set[int]:
         """Return invalid local block ids from the decode-side recv thread."""
         if self.kv_role == "kv_consumer" and self.kv_recv_thread is not None:
-            return self.kv_recv_thread.get_and_clear_invalid_block_ids()
+            invalid_block_ids = self.kv_recv_thread.get_and_clear_invalid_block_ids()
+            logger.warning(
+                "Mooncake invalid blocks fetched. pid=%s, invalid_block_ids=%s",
+                os.getpid(),
+                invalid_block_ids,
+            )
+            return invalid_block_ids
         return set()
 
     mhc.MooncakeConnector.get_block_ids_with_load_errors = connector_get_block_ids_with_load_errors

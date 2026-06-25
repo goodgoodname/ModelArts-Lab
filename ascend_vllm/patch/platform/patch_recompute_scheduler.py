@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import os
 
 import numpy as np
@@ -14,6 +15,12 @@ _PATCH_APPLIED = False
 def _patch_recompute_scheduler() -> None:
     """Patch RecomputeScheduler for hybrid invalid-block handling."""
     from vllm_ascend.core import recompute_scheduler as rs
+    logger.warning(
+        "RecomputeScheduler patch loaded. pid=%s, module_file=%s, scheduler_file=%s",
+        os.getpid(),
+        rs.__file__,
+        inspect.getfile(rs.RecomputeScheduler),
+    )
 
     def update_requests_with_invalid_blocks(
         self,
@@ -22,6 +29,11 @@ def _patch_recompute_scheduler() -> None:
         num_scheduled_tokens: dict[str, int],
         evict_blocks: bool = True,
     ) -> tuple[set[str], int, set[int]]:
+        logger.warning(
+            "patched _update_requests_with_invalid_blocks entered. pid=%s, invalid_block_ids=%s",
+            os.getpid(),
+            invalid_block_ids,
+        )
         affected_req_ids: set[str] = set()
         total_affected_tokens = 0
         blocks_to_evict: set[int] = set()
@@ -109,6 +121,13 @@ def _patch_recompute_scheduler() -> None:
 
             @functools.wraps(origin_update_from_output)
             def patched_update_from_output(self, scheduler_output, model_runner_output):
+                kv_output = getattr(model_runner_output, "kv_connector_output", None)
+                logger.warning(
+                    "patched_update_from_output entered. pid=%s, scheduler=%s, invalid_block_ids=%s",
+                    os.getpid(),
+                    type(self),
+                    getattr(kv_output, "invalid_block_ids", None),
+                )
                 # Save num_scheduled_tokens for the duration of this scheduler update.
                 previous_tokens = getattr(self, token_attr, missing)
                 setattr(self, token_attr, scheduler_output.num_scheduled_tokens)
@@ -135,6 +154,12 @@ def _patch_recompute_scheduler() -> None:
                 invalid_block_ids: set[int],
                 num_scheduled_tokens: dict[str, int] | None = None,
             ) -> set[str]:
+                logger.warning(
+                    "patched_handle_invalid_blocks entered. pid=%s, invalid_block_ids=%s, has_tokens=%s",
+                    os.getpid(),
+                    invalid_block_ids,
+                    num_scheduled_tokens is not None,
+                )
                 # vLLM 0.21.0 requires num_scheduled_tokens, but the Ascend
                 # RecomputeScheduler code may still call this method with one argument.
                 if num_scheduled_tokens is None:
