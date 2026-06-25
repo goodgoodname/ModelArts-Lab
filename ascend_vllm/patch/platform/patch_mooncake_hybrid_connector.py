@@ -210,6 +210,8 @@ def _patch_mooncake_hybrid_connector() -> None:
                 mhc.__file__,
             )
 
+            raise RuntimeError("DEBUG: patched register_kv_caches entered")
+
             if self.kv_role == "kv_consumer" and not init_wrapped:
                 raise RuntimeError(
                     "ModelArts patch reached decode worker, but "
