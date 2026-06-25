@@ -37,6 +37,19 @@ def _patch_mooncake_hybrid_connector() -> None:
     from vllm_ascend.distributed.kv_transfer.kv_p2p import mooncake_hybrid_connector as mhc
 
     recv_cls = mhc.KVCacheRecvingThread
+    transfer_method = getattr(recv_cls, "_transfer_kv_cache", None)
+    transfer_all_groups_method = getattr(recv_cls, "_transfer_kv_cache_all_groups", None)
+    logger.warning(
+        "Mooncake connector patch state. pid=%s, already_patched=%s, "
+        "transfer_method=%s, transfer_all_groups_method=%s, "
+        "transfer_wrapped=%s, transfer_all_groups_wrapped=%s",
+        os.getpid(),
+        getattr(recv_cls, "_modelarts_mooncake_hybrid_connector_patch_applied", False),
+        transfer_method,
+        transfer_all_groups_method,
+        getattr(transfer_method, "_modelarts_wrapped", False),
+        getattr(transfer_all_groups_method, "_modelarts_wrapped", False),
+    )
     logger.warning(
         "Mooncake connector patch loaded. pid=%s, module_file=%s, recv_cls_file=%s",
         os.getpid(),
@@ -87,8 +100,19 @@ def _patch_mooncake_hybrid_connector() -> None:
             """Wrap a transfer method so failures are reported before re-raising."""
             origin_method = getattr(recv_cls, method_name, None)
             if origin_method is None:
+                logger.warning(
+                    "Mooncake transfer method missing. pid=%s, method=%s",
+                    os.getpid(),
+                    method_name,
+                )
                 return
             if getattr(origin_method, "_modelarts_wrapped", False):
+                logger.warning(
+                    "Mooncake transfer method already wrapped. pid=%s, method=%s, method_obj=%s",
+                    os.getpid(),
+                    method_name,
+                    origin_method,
+                )
                 return
 
             @functools.wraps(origin_method)
