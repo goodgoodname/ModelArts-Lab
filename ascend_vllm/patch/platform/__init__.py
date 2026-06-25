@@ -4,5 +4,8 @@ from ascend_vllm.patch.platform import (
     patch_disable_completion_tokens_details as patch_disable_completion_tokens_details,
 )
 from ascend_vllm.patch.platform import (
-    patch_mooncake_hybrid_kv_failure as patch_mooncake_hybrid_kv_failure,
+    patch_mooncake_hybrid_connector as patch_mooncake_hybrid_connector,
+)
+from ascend_vllm.patch.platform import (
+    patch_recompute_scheduler as patch_recompute_scheduler,
 )
