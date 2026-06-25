@@ -75,6 +75,8 @@ def _patch_mooncake_hybrid_connector() -> None:
             # The recv thread writes this set while the model runner reads it.
             self.failed_recv_requests_lock = threading.Lock()
 
+        patched_init._modelarts_wrapped = True
+
         def ensure_failure_state(self) -> None:
             """Initialize failure-tracking fields for existing instances."""
             if not hasattr(self, "invalid_block_ids"):
@@ -176,6 +178,54 @@ def _patch_mooncake_hybrid_connector() -> None:
 
     mhc.MooncakeConnector.get_block_ids_with_load_errors = connector_get_block_ids_with_load_errors
     mhc.MooncakeConnectorWorker.get_block_ids_with_load_errors = worker_get_block_ids_with_load_errors
+
+    origin_register_kv_caches = mhc.MooncakeConnectorWorker.register_kv_caches
+    if not getattr(origin_register_kv_caches, "_modelarts_wrapped", False):
+
+        @functools.wraps(origin_register_kv_caches)
+        def patched_register_kv_caches(self, kv_caches):
+            # This is the last checkpoint before KVCacheRecvingThread is created
+            # on the decode side.
+            init_wrapped = getattr(
+                mhc.KVCacheRecvingThread.__init__,
+                "_modelarts_wrapped",
+                False,
+            )
+            class_patched = getattr(
+                mhc.KVCacheRecvingThread,
+                "_modelarts_mooncake_hybrid_connector_patch_applied",
+                False,
+            )
+            logger.warning(
+                "Mooncake register_kv_caches entered. pid=%s, kv_role=%s, "
+                "recv_cls=%s, recv_cls_id=%s, recv_init=%s, init_wrapped=%s, "
+                "class_patched=%s, module=%s",
+                os.getpid(),
+                self.kv_role,
+                mhc.KVCacheRecvingThread,
+                id(mhc.KVCacheRecvingThread),
+                mhc.KVCacheRecvingThread.__init__,
+                init_wrapped,
+                class_patched,
+                mhc.__file__,
+            )
+
+            if self.kv_role == "kv_consumer" and not init_wrapped:
+                raise RuntimeError(
+                    "ModelArts patch reached decode worker, but "
+                    "KVCacheRecvingThread.__init__ is not patched."
+                )
+
+            return origin_register_kv_caches(self, kv_caches)
+
+        patched_register_kv_caches._modelarts_wrapped = True
+        mhc.MooncakeConnectorWorker.register_kv_caches = patched_register_kv_caches
+        logger.warning(
+            "Wrapped Mooncake register_kv_caches. pid=%s, origin=%s, wrapped=%s",
+            os.getpid(),
+            origin_register_kv_caches,
+            patched_register_kv_caches,
+        )
 
 
 def apply_patch() -> None:
