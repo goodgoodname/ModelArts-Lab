@@ -78,11 +78,4 @@ def register_worker_patch():
         os.getenv("VLLM_PLUGINS"),
     )
 
-    from vllm_ascend.worker.worker import NPUWorker
-
-    def patched_init_device(self, *args, **kwargs):
-        raise RuntimeError("DEBUG: ModelArts patched NPUWorker.init_device entered")
-
-    NPUWorker.init_device = patched_init_device
-
     from ascend_vllm.patch.platform import patch_mooncake_hybrid_connector  # noqa: F401
