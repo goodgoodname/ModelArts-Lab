@@ -7,3 +7,6 @@ Add new worker patches here by importing the patch module:
 
     from ascend_vllm.patch.worker import patch_<name>  # noqa: F401
 """
+from ascend_vllm.patch.worker import (
+    patch_mooncake_hybrid_connector as patch_mooncake_hybrid_connector,
+)

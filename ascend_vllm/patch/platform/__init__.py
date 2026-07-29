@@ -30,3 +30,6 @@ from ascend_vllm.patch.platform import (
 from ascend_vllm.patch.platform import (
     patch_deepseek_v4_tool_call_metadata as patch_deepseek_v4_tool_call_metadata,
 )
+from ascend_vllm.patch.platform import (
+    patch_recompute_scheduler as patch_recompute_scheduler,
+)
