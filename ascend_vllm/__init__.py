@@ -69,6 +69,18 @@ def register_model():
     register_model()
 
 
+def register_kv_failure_patch():
+    """Load Mooncake Hybrid KV failure patch in vLLM general-plugin processes."""
+    from ascend_vllm.patch.worker import patch_mooncake_hybrid_connector  # noqa: F401
+
+    _KV_FAILURE_PATCH_APPLIED = True
+
+
+def register_general_plugin_patch():
+    """Load ModelArts runtime patches through vLLM general plugins."""
+    register_kv_failure_patch()
+
+
 # ---------------------------------------------------------------------------
 # Meta-path import hook for reliable patch loading.
 #
