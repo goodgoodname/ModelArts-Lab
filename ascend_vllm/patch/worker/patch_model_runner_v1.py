@@ -6,13 +6,17 @@ import torch
 import torch.distributed as dist
 from vllm.config import CUDAGraphMode
 from vllm.distributed.parallel_state import get_dp_group
+from vllm_ascend.ascend_forward_context import select_moe_comm_method
+from vllm_ascend.ops.fused_moe.moe_comm_method import MoECommType
 from vllm_ascend.utils import (
     is_moe_model,
     should_skip_allreduce_across_dp_group,
 )
 
+
 _PATCH_APPLIED = False
 _PATCH_MARKER = "_modelarts_moe_dp_metadata_sync_applied"
+_NO_FORWARD_PATCH_MARKER = "_modelarts_empty_batch_dp_sync_applied"
 
 
 def apply_patch() -> None:
@@ -23,6 +27,46 @@ def apply_patch() -> None:
         return
 
     from vllm_ascend.worker.model_runner_v1 import NPUModelRunner
+
+    original_kv_connector_no_forward = (
+        NPUModelRunner.kv_connector_no_forward
+    )
+
+    if not getattr(
+        original_kv_connector_no_forward,
+        _NO_FORWARD_PATCH_MARKER,
+        False,
+    ):
+
+        @functools.wraps(original_kv_connector_no_forward)
+        def kv_connector_no_forward_with_dp_sync(
+            self,
+            scheduler_output,
+            *args,
+            **kwargs,
+        ):
+            if (
+                scheduler_output.total_num_scheduled_tokens > 0
+                and self.parallel_config.distributed_executor_backend
+                == "external_launcher"
+                and self.parallel_config.data_parallel_size > 1
+            ):
+                self._dummy_run(1)
+
+            return original_kv_connector_no_forward(
+                scheduler_output,
+                *args,
+                **kwargs,
+            )
+
+        setattr(
+            kv_connector_no_forward_with_dp_sync,
+            _NO_FORWARD_PATCH_MARKER,
+            True,
+        )
+        NPUModelRunner.kv_connector_no_forward = (
+            kv_connector_no_forward_with_dp_sync
+        )
 
     original_sync_metadata_across_dp = NPUModelRunner._sync_metadata_across_dp
 
@@ -44,7 +88,6 @@ def apply_patch() -> None:
     ) -> tuple[int, torch.Tensor | None, CUDAGraphMode]:
         needs_moe_metadata_sync = (
             self.dp_size > 1
-            and not is_draft_model
             and is_moe_model(self.vllm_config)
             and should_skip_allreduce_across_dp_group(
                 self.vllm_config,
@@ -83,11 +126,48 @@ def apply_patch() -> None:
         # Use the most conservative mode supported by every rank.
         synced_cudagraph_mode = CUDAGraphMode(int(dp_metadata[1].min().item()))
 
-        # Preserve each rank's local token count. Downstream code uses the
-        # global maximum only to choose one consistent MoE communication mode.
+        comm_methods = set()
+
+        for rank_tokens in tokens_across_dp:
+            comm_method = select_moe_comm_method(int(rank_tokens.item()), self.vllm_config)
+            comm_methods.add(comm_method)
+
+        uneven_token_methods = {
+            MoECommType.MC2,
+            MoECommType.FUSED_MC2,
+        }
+
+        can_keep_uneven_tokens = (
+            len(comm_methods) == 1
+            and comm_methods.issubset(uneven_token_methods)
+        )
+
+        if can_keep_uneven_tokens:
+            # All ranks use the same communication method, which supports
+            # different local token counts.
+            local_tokens_for_dp = torch.full(
+                (self.dp_size,),
+                num_tokens,
+                device="cpu",
+                dtype=torch.int32,
+            )
+            return (
+                num_tokens,
+                local_tokens_for_dp,
+                synced_cudagraph_mode,
+            )
+
+        # Communication methods may diverge. Pad every rank to the global
+        # maximum so all ranks select the same method.
+        uniform_tokens_for_dp = torch.full(
+            (self.dp_size,),
+            max_tokens_across_dp,
+            device="cpu",
+            dtype=torch.int32,
+        )
         return (
             max_tokens_across_dp,
-            tokens_across_dp,
+            uniform_tokens_for_dp,
             synced_cudagraph_mode,
         )
 
