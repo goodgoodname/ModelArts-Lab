@@ -15,6 +15,7 @@ env_variables: Dict[str, Callable[[], Any]] = {
         lambda: int(os.getenv("MODELARTS_KV_CIRCUIT_BREAKER_THRESHOLD", 3)),
     "MODELARTS_KV_CIRCUIT_BREAKER_WINDOW_SECONDS":
         lambda: float(os.getenv("MODELARTS_KV_CIRCUIT_BREAKER_WINDOW_SECONDS", 60)),
+    "ENABLE_ZERO_BUBBLE": lambda: bool(int(os.getenv("ENABLE_ZERO_BUBBLE", 0))),
 }
 
 def add_dynamic_module_envs():
