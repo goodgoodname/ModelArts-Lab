@@ -777,6 +777,40 @@ def _build_attention_metadata(
     # Reorder metadata construction only; preserve original group order for
     # drafter bookkeeping and selection.
     spec_decode_common_attn_metadata = None
+
+    def update_drafter_metadata(kv_cache_gid, kv_cache_group, cm):
+        nonlocal spec_decode_common_attn_metadata
+
+        if self.speculative_config and isinstance(
+            self.drafter,
+            (AscendStep3p5MTPProposer, AscendDSparkProposer),
+        ):
+            self.drafter.set_per_group_attn_metadata(
+                kv_cache_gid,
+                cm.block_table_tensor,
+                cm.slot_mapping,
+            )
+
+        if (
+            self.speculative_config
+            and spec_decode_common_attn_metadata is None
+        ):
+            if isinstance(
+                self.drafter,
+                (
+                    AscendEagleProposer,
+                    AscendDraftModelProposer,
+                    AscendDflashProposer,
+                    AscendDSparkProposer,
+                ),
+            ):
+                if self.drafter.attn_layer_names[0] in kv_cache_group.layer_names:
+                    spec_decode_common_attn_metadata = cm
+            else:
+                spec_decode_common_attn_metadata = cm
+
+    zero_bubble_enabled = bool(envs_ascend.ENABLE_ZERO_BUBBLE)
+
     logical_gids = list(range(len(kv_cache_groups)))
     build_gids = logical_gids
 
@@ -829,7 +863,11 @@ def _build_attention_metadata(
                 _get_block_table_and_slot_mapping(kv_cache_gid)
             )
 
-        common_metadata_by_gid[kv_cache_gid] = cm
+        if zero_bubble_enabled:
+            common_metadata_by_gid[kv_cache_gid] = cm
+        else:
+            # Preserve the original ordering: register with the drafter before build.
+            update_drafter_metadata(kv_cache_gid, kv_cache_group, cm)
 
         for attn_gid in range(len(self.attn_groups[kv_cache_gid])):
             _build_attn_group_metadata(
@@ -841,53 +879,25 @@ def _build_attention_metadata(
                 common_ratio_to_sas_metadata,
             )
 
-    # Finish any required correction before handing metadata to the drafter.
-    correct_seq_lens_cpu_if_pending()
+    if zero_bubble_enabled:
+        correct_seq_lens_cpu_if_pending()
 
-    if correction_applied:
-        corrected_max_seq_len = int(
-            self.optimistic_seq_lens_cpu.numpy()[:num_reqs].max()
-        )
-        cm_base.max_seq_len = corrected_max_seq_len
-
-        # Shallow copies share tensor storage, but not scalar updates.
-        for cm in common_metadata_by_gid.values():
-            cm.max_seq_len = corrected_max_seq_len
-
-    for kv_cache_gid in logical_gids:
-        kv_cache_group = kv_cache_groups[kv_cache_gid]
-        cm = common_metadata_by_gid[kv_cache_gid]
-
-        if self.speculative_config and isinstance(
-            self.drafter,
-            (AscendStep3p5MTPProposer, AscendDSparkProposer),
-        ):
-            self.drafter.set_per_group_attn_metadata(
-                kv_cache_gid,
-                cm.block_table_tensor,
-                cm.slot_mapping,
+        if correction_applied:
+            corrected_max_seq_len = int(
+                self.optimistic_seq_lens_cpu.numpy()[:num_reqs].max()
             )
+            cm_base.max_seq_len = corrected_max_seq_len
 
-        if (
-            self.speculative_config
-            and spec_decode_common_attn_metadata is None
-        ):
-            if isinstance(
-                self.drafter,
-                (
-                    AscendEagleProposer,
-                    AscendDraftModelProposer,
-                    AscendDflashProposer,
-                    AscendDSparkProposer,
-                ),
-            ):
-                if (
-                    self.drafter.attn_layer_names[0]
-                    in kv_cache_group.layer_names
-                ):
-                    spec_decode_common_attn_metadata = cm
-            else:
-                spec_decode_common_attn_metadata = cm
+            # Scalar updates are not shared by shallow copies.
+            for cm in common_metadata_by_gid.values():
+                cm.max_seq_len = corrected_max_seq_len
+
+        for kv_cache_gid in logical_gids:
+            update_drafter_metadata(
+                kv_cache_gid,
+                kv_cache_groups[kv_cache_gid],
+                common_metadata_by_gid[kv_cache_gid],
+            )
     # ascend vllm adaptor end
     
     if self.is_mm_prefix_lm:
